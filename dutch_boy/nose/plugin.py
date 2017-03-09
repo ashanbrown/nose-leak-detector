@@ -76,7 +76,6 @@ class LeakDetectorPlugin(Plugin):
         self.last_test_name = None
         self.last_test_module_name = None
         self.last_test_type = None
-        self.last_test_class_name = None
         self.level_name = {}
         self.previous_summaries = {}
         self.current_summary = None
@@ -183,7 +182,7 @@ class LeakDetectorPlugin(Plugin):
 
         if self.last_test_name:
             if self.last_test_type is not test_type:
-                self.finished_level(LEVEL_CLASS, self.last_test_class_name)
+                self.finished_level(LEVEL_CLASS, self.last_test_type.__name__)
 
             if self.last_test_module_name != test_module_name:
                 self.finished_level(LEVEL_MODULE, self.last_test_module_name)
@@ -192,14 +191,14 @@ class LeakDetectorPlugin(Plugin):
             self.started_level(LEVEL_MODULE, test_module_name)
 
         if not self.last_test_name or self.last_test_type is not test_type:
-            self.started_level(LEVEL_CLASS, test.test.__class__.__name__)
+            self.started_level(LEVEL_CLASS, test_type.__name__)
 
         self.started_level(LEVEL_TEST, str(test))
 
     def afterTest(self, test):
         self.last_test_name = str(test.test)
-        self.last_test_class_name = test.test.__class__.__name__
-        self.last_test_module = test.test.__class__.__module__
+        self.last_test_type = test.test.__class__
+        self.last_test_module_name = test.test.__class__.__module__
 
         self.finished_level(LEVEL_TEST, str(test))
 

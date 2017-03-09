@@ -136,6 +136,10 @@ class LeakDetectorPlugin(Plugin):
         self.save_traceback = options.leak_detector_save_traceback
         self.multiprocessing_enabled = bool(getattr(options, 'multiprocess_workers', False))
 
+    def setOutputStream(self, stream):
+        self.stream = stream
+        return None  # We aren't changing the output stream, just capturing it
+
     def begin(self):
         self.create_initial_summary()
 
@@ -277,7 +281,7 @@ class LeakDetectorPlugin(Plugin):
                 self.REPORT_DETAILS[level].title.upper(), name)
             memory_usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
-            print('Peak memory usage for %s: %s' % (name, memory_usage))
+            self.stream.write('Peak memory usage for %s: %s\n' % (name, memory_usage))
 
             old_summary = self.previous_summaries[level]
 
@@ -287,12 +291,13 @@ class LeakDetectorPlugin(Plugin):
             diff = self._fast_get_summary_diff(old_summary, self.current_summary)
             filtered_diff = [row for row in diff if row[1] or row[2]]
             if filtered_diff:
-                print(termcolor.colored(report, color))
-                print(summary.print_(filtered_diff))
+                self.stream.write(termcolor.colored(report, color))
+                self.stream.write('\n'.join(summary.format_(filtered_diff)))
+                self.stream.write('\n')
             else:
                 report += 'No changes\n'
-                report += 'Peak memory usage: %s' % memory_usage
-                print(termcolor.colored(report, color))
+                report += 'Peak memory usage: %s\n' % memory_usage
+                self.stream.write(termcolor.colored(report, color))
 
             self.previous_summaries[level] = self.current_summary
 

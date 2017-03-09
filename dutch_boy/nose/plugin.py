@@ -356,7 +356,7 @@ class LeakDetectorPlugin(Plugin):
 
         def get_new_mocks():
             # Use list so that we don't keep around a generate that isn't gc'd
-            return list(m for m in live_mocks if m.mock_ref() and
+            return list(m for m in live_mocks if m.mock_ref() is not None and
                         id(m.mock_ref()) not in previous_mock_ids and
                         not any(re.search(pattern, repr(m.mock_ref()))
                                 for pattern in self.ignore_patterns))

@@ -379,15 +379,19 @@ class LeakDetectorPlugin(Plugin):
 
             def error_message(bad_mock):
                 data = vars(bad_mock.mock_ref())
-                msg = ' --> '.join(bad_mock.traceback or
-                    ["No traceback available.  Consider setting '--leak-detector-add-traceback' "
-                     "to see where this mock was created."])
+                if bad_mock.traceback is not None:
+                    msg = ''.join(['\n'] + bad_mock.traceback)
+                else:
+                    msg = (
+                        "  No traceback available.  Consider setting '--leak-detector-add-traceback' "
+                        "to see where this mock was created."
+                    )
                 if bad_mock.test:
                     msg = "Created in test '%s' [%s]" % (bad_mock.test, msg)
                 return msg + ' : ' + str(data)
 
             def number(l):
-                return ' '.join(['%d) %s' % (i + 1, v) for i, v in enumerate(l)])
+                return '\n\n'.join(['%d) %s' % (i + 1, v) for i, v in enumerate(l)])
 
             msg = ''
             if new_mocks:

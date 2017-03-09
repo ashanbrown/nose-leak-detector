@@ -123,6 +123,11 @@ class LeakDetectorPlugin(Plugin):
                           dest="leak_detector_ignore_patterns",
                           help="")
 
+        parser.add_option("--leak-detector-ignore-empty-mocks", action="store_true",
+                          default=env.get('NOSE_LEAK_DETECTOR_IGNORE_EMPTY', False),
+                          dest="leak_detector_ignore_empty",
+                          help="If set, don't report on mocks that haven't had any calls made on them (or have been reset).")
+
     def configure(self, options, conf):
         """
         Configure plugin.
@@ -134,6 +139,7 @@ class LeakDetectorPlugin(Plugin):
         self.patch_mock = options.leak_detector_patch_mock
         self.ignore_patterns = options.leak_detector_ignore_patterns
         self.save_traceback = options.leak_detector_save_traceback
+        self.ignore_empty = options.leak_detector_ignore_empty
         self.multiprocessing_enabled = bool(getattr(options, 'multiprocess_workers', False))
 
     def begin(self):
@@ -374,7 +380,15 @@ class LeakDetectorPlugin(Plugin):
             gc.collect()
             new_mocks = get_new_mocks()
             called_mocks = get_called_mocks()
-            if not (new_mocks or called_mocks):
+            old_called_mocks = [
+                m for m in called_mocks if id(m.mock_ref())
+                not in [id(n.mock_ref()) for n in new_mocks]
+            ]
+
+            if self.ignore_empty and not called_mocks:
+                return
+
+            if not (new_mocks or old_called_mocks):
                 return
 
             def error_message(bad_mock):
@@ -390,19 +404,24 @@ class LeakDetectorPlugin(Plugin):
                 return ' '.join(['%d) %s' % (i + 1, v) for i, v in enumerate(l)])
 
             msg = ''
-            if new_mocks:
-                msg += ('Found %d new mock(s) that have not been garbage collected:\n%s' %
-                        (len(new_mocks), number(map(error_message, new_mocks))))
 
-            if called_mocks:
-                msg += ('Found %d dirty mock(s) that have not been garbage collected or reset:\n%s' %
-                        (len(called_mocks),
-                         number(map(error_message,
-                                  [m for m in called_mocks if id(m.mock_ref())
-                                   not in [id(n.mock_ref()) for n in new_mocks]]))))
+            if self.ignore_empty:
+                if called_mocks:
+                    msg += ('Found %d mock(s) that have not been called and not garbage collected or reset:\n\n%s\n\n' %
+                            (len(called_mocks), number(map(error_message, called_mocks))))
+
+            else:
+                if new_mocks:
+                    msg += ('Found %d new mock(s) that have not been garbage collected:\n\n%s\n\n' %
+                            (len(new_mocks), number(map(error_message, new_mocks))))
+
+                if old_called_mocks:
+                    msg += ('Found %d existing mock(s) that have not been garbage collected or reset:\n\n%s\n\n' %
+                            (len(old_called_mocks), number(map(error_message, old_called_mocks))))
 
             # Ensure hard references to the mocks are no longer on the stack
-            del live_mocks[:], new_mocks[:], called_mocks[:]
+            del live_mocks[:], new_mocks[:], called_mocks[:], old_called_mocks[:]
+
             raise LeakDetected(msg)
 
     def get_summary(self):

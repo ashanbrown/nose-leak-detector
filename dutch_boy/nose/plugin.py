@@ -7,17 +7,18 @@ import collections
 import functools
 import gc
 import operator
+import os
 import re
 
 try:
     from unittest import mock
-    from unittest.mock import Base
+    from unittest.mock import Base, MagicProxy
 except ImportError:
     import mock
     try:
-        from mock.mock import Base
+        from mock.mock import Base, MagicProxy
     except ImportError:
-        from mock import Base
+        from mock import Base, MagicProxy
 
 import resource
 import sys
@@ -25,6 +26,7 @@ import traceback
 import weakref
 
 from nose.plugins import Plugin
+import objgraph
 from pympler import muppy
 from pympler import summary
 import termcolor
@@ -123,6 +125,12 @@ class LeakDetectorPlugin(Plugin):
                           dest="leak_detector_ignore_patterns",
                           help="")
 
+        parser.add_option("--leak-detector-dump-backrefs", action="store_true",
+                          default=env.get('NOSE_LEAK_DETECTOR_DUMP_BACKREFS', False),
+                          dest="leak_detector_dump_backrefs",
+                          help="If set, record objgraph backref traces for all leaked Mocks.")
+
+
     def configure(self, options, conf):
         """
         Configure plugin.
@@ -134,6 +142,7 @@ class LeakDetectorPlugin(Plugin):
         self.patch_mock = options.leak_detector_patch_mock
         self.ignore_patterns = options.leak_detector_ignore_patterns
         self.save_traceback = options.leak_detector_save_traceback
+        self.dump_backrefs = options.leak_detector_dump_backrefs
         self.multiprocessing_enabled = bool(getattr(options, 'multiprocess_workers', False))
 
     def begin(self):
@@ -389,10 +398,57 @@ class LeakDetectorPlugin(Plugin):
             def number(l):
                 return ' '.join(['%d) %s' % (i + 1, v) for i, v in enumerate(l)])
 
+            def ignoreable_object(obj):
+                return not (
+                    # MagicProxies are part of the MagicMock infrastructure that
+                    # only ever point back to that same MagicMock (and implement
+                    # the magic methods), so we can safely ignore them.
+                    isinstance(obj, MagicProxy) or
+                    # MagicProxy.__dict__ has `name` and `parent`, and `parent`
+                    # points to a MagicMock
+                    (
+                        isinstance(obj, dict) and
+                        'parent' in obj and
+                        'name' in obj and
+                        isinstance(obj['parent'], mock.MagicMock)
+                    ) or
+                    # Mocks always create new Type objects, so we can ignore
+                    # them as well, since each Mock will be the only thing
+                    # pointing to its type.
+                    (isinstance(obj, type) and issubclass(obj, Base)) or
+                    # Objgraph sees the current traceback frame while showing
+                    # backrefs, but that isn't useful.
+                    (hasattr(sys, 'exc_traceback') and obj is sys.exc_traceback.tb_frame)
+                )
+
+            def dump_backrefs(bad_mock):
+                try:
+                    os.mkdir('dutch-boy')
+                except OSError:
+                    pass  # Directory already exists
+
+                filename = bad_mock.test
+                if filename is None:
+                    filename = 'before_any_tests'
+
+                mock = bad_mock.mock_ref()
+
+                objgraph.show_backrefs(
+                    mock,
+                    filename='dutch-boy/{}.{}.png'.format(filename, id(mock)),
+                    max_depth=10,
+                    filter=ignoreable_object,
+                )
+
             msg = ''
             if new_mocks:
                 msg += ('Found %d new mock(s) that have not been garbage collected:\n%s' %
                         (len(new_mocks), number(map(error_message, new_mocks))))
+
+                if self.dump_backrefs:
+                    for m in new_mocks:
+                        dump_backrefs(m)
+                    del m
 
             if called_mocks:
                 msg += ('Found %d dirty mock(s) that have not been garbage collected or reset:\n%s' %

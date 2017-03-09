@@ -31,6 +31,7 @@ setup(
         'nose>=1.2.1',
         'pympler>=0.3.1',
         'termcolor>=1.1.0',
+        'objgraph>=3.0.1',
     ],
     tests_require=[
         'mock>=1.3.0,<2',
